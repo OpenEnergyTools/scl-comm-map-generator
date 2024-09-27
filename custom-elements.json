@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1.0.0",
+  "readme": "",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "scl-comm-map-generator.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "An editor [[`plugin`]] to configure `Report`, `GOOSE`, `SampledValue` control blocks and its `DataSet`",
+          "name": "SclCommMapGenerator",
+          "members": [
+            {
+              "kind": "field",
+              "name": "doc",
+              "type": {
+                "text": "XMLDocument"
+              },
+              "description": "The document being edited as provided to plugins by [[`OpenSCD`]]."
+            },
+            {
+              "kind": "field",
+              "name": "editCount",
+              "type": {
+                "text": "number"
+              },
+              "default": "-1",
+              "description": "SCL change indicator",
+              "attribute": "editCount"
+            },
+            {
+              "kind": "method",
+              "name": "run"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "editCount",
+              "type": {
+                "text": "number"
+              },
+              "default": "-1",
+              "description": "SCL change indicator",
+              "fieldName": "editCount"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "SclCommMapGenerator",
+            "module": "scl-comm-map-generator.ts"
+          }
+        }
+      ]
+    }
+  ]
+}
