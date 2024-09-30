@@ -1697,7 +1697,7 @@ function createControlBlock(commMapData) {
     const controlBlock = createElement(commMapData.source.ownerDocument, controls[service], {
         datSet,
         name: commMapData.sourceName,
-        AppID: createAppId(datSet, ln0),
+        appID: createAppId(datSet, ln0),
     });
     return [
         {
