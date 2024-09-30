@@ -1673,13 +1673,32 @@ function createDataSet(commMapData) {
     });
     return dataSet;
 }
+function createAppId(name, ln0) {
+    let parent = ln0.parentElement;
+    let path = '';
+    while (parent && parent.tagName !== 'SCL') {
+        if (parent.tagName === 'LDevice') {
+            path = `${parent.getAttribute('inst')}/${path}`;
+        }
+        else if (parent.tagName === 'IED') {
+            path = `${parent.getAttribute('name')}/${path}`;
+        }
+        parent = parent.parentElement;
+    }
+    return `${path}/${name}`;
+}
 function createControlBlock(commMapData) {
-    const service = commMapData.mappings[0].srcRef.getAttribute('service');
-    const dataSet = createDataSet(commMapData);
-    const controlBlock = createElement(commMapData.source.ownerDocument, controls[service], { datSet: dataSet.getAttribute('name'), name: commMapData.sourceName });
     const ln0 = commMapData.source.ownerDocument.querySelector(`IED[name="${commMapData.sourceIED}"] LN0`);
     if (!ln0)
         return [];
+    const service = commMapData.mappings[0].srcRef.getAttribute('service');
+    const dataSet = createDataSet(commMapData);
+    const datSet = dataSet.getAttribute('name');
+    const controlBlock = createElement(commMapData.source.ownerDocument, controls[service], {
+        datSet,
+        name: commMapData.sourceName,
+        AppID: createAppId(datSet, ln0),
+    });
     return [
         {
             parent: ln0,
