@@ -7,8 +7,25 @@
     "menu": [
       {"name": "Open File", "translations": {"de": "Datei öffnen"}, "icon": "folder_open", "active": true, "src": "https://openscd.github.io/oscd-open/oscd-open.js"},
       {"name": "Save File", "translations": {"de": "Datei speichern"}, "icon": "save", "active": true, "requireDoc":true ,"src": "https://openscd.github.io/oscd-save/oscd-save.js"},
-      {"name": "Create Comm Map", "translations": {"de": "IED importieren"}, "icon": "save", "active": true, "requireDoc":true , "src": "../dist/scl-comm-map-generator.js"}],
-    "editor": [{"name": "Open File", "translations": {"de": "Datei öffnen"}, "icon": "folder_open", "active": true, "src": "/dist/oscd-open.js"}]}'></open-scd>
+      {"name": "Create Comm Map", "translations": {"de": "IED importieren"}, "icon": "save", "active": true, "requireDoc":true , "src": "../dist/scl-comm-map-generator.js"}
+    ],
+    "editor": [
+      {"name": "Open File", "translations": {"de": "Datei öffnen"}, "icon": "folder_open", "active": true, "src": "/dist/oscd-open.js"},
+      {"name": "CommMa", "translations": {"de": "Datei öffnen"}, "icon": "folder_open", "active": true, "src": "https://openenergytools.github.io/scl-communication-editor/scl-communication-editor.js"}
+    ]
+  }'>
+</open-scd>
+
+<script>
+  const _customElementsDefine = window.customElements.define;
+  window.customElements.define = (name, cl, conf) => {
+    if (!customElements.get(name)) {
+      try {
+        _customElementsDefine.call(window.customElements, name, cl, conf);
+      } catch (e) { console.warn(e); }
+    }
+  };
+</script>
 
 <script type="module">
 import '@openscd/open-scd-core/open-scd.js';

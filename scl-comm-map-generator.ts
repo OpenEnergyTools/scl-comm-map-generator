@@ -11,7 +11,7 @@ import {
 import { newEditEvent } from '@openscd/open-scd-core';
 
 const existingControlBlocks: {
-  ctrlParent: Element;
+  parent: Element;
   ctrlBlock: Element;
   dataSet: Element;
 }[] = [];
@@ -40,7 +40,7 @@ type UpdateExtRefOptions = {
 
 type CreateExtRefOptions = {
   dataSet: Element;
-  ctrlParent: Element;
+  parent: Element;
   ctrlBlock: Element;
 };
 
@@ -199,16 +199,11 @@ function getDataDetail(
 }
 
 function createFCDA(mapping: Mapping): Element | null {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  /* const [_, dataPath] = mapping.srcRef
-    .getAttribute('source')!
-    .split(lnSpec(mapping.srcLNode)); */
-
   const dataPath = mapping.srcRef.getAttribute('source')?.split('/').pop();
 
   if (!dataPath) return null;
 
-  const ldInst = mapping.srcLNode.getAttribute('iedName');
+  const ldInst = mapping.srcLNode.getAttribute('ldInst');
   const prefix = mapping.srcLNode.getAttribute('prefix');
   const lnClass = mapping.srcLNode.getAttribute('lnClass');
   const lnInst = mapping.srcLNode.getAttribute('lnInst');
@@ -351,9 +346,7 @@ function createExtRef(srcRef: Element, options: CreateExtRefOptions): Insert[] {
     'fc',
   ].map(attr => options.dataSet.getAttribute(attr));
 
-  const srcLDInst = options.ctrlParent
-    .closest('LDevice')!
-    .getAttribute('ldInst');
+  const srcLDInst = options.parent.closest('LDevice')!.getAttribute('ldInst');
 
   const srcPrefix = null;
   const srcLNClass = 'LLN0';
@@ -441,20 +434,42 @@ function getExtRef(srcRef: Element): Element {
   return anyLn.querySelector(`:scope > Inputs > ExtRef[intAddr="${intAddr}"]`)!;
 }
 
+function findFCDA(dataSet: Element, mapping: Mapping): Element | null {
+  const dataPath = mapping.srcRef.getAttribute('source')?.split('/').pop();
+
+  if (!dataPath) return null;
+
+  const prefix = mapping.srcLNode.getAttribute('prefix');
+  const lnClass = mapping.srcLNode.getAttribute('lnClass');
+  const lnInst = mapping.srcLNode.getAttribute('lnInst');
+
+  const { doName, daName, fc } = getDataDetail(mapping.srcLNode, dataPath);
+  if (!doName || !daName || !fc) return null;
+
+  const fcda = dataSet.querySelector(
+    `:scope > FCDA[prefix="${prefix}"][lnClass="${lnClass}"][lnInst="${lnInst}"][doName="${doName}"][daName="${daName}"][fc="${fc}"]`
+  );
+
+  return fcda;
+}
+
 function createExtRefs(
   commMapData: CommMapData,
   options: CreateExtRefOptions
 ): Edit[] {
   const edits: Edit[] = [];
 
-  commMapData.mappings.forEach((mapping, i) => {
+  commMapData.mappings.forEach(mapping => {
     const { srcRef } = mapping;
     const extRefAddr = srcRef.getAttribute('extRefAddr');
+    const fcda = findFCDA(options.dataSet, mapping);
+    if (!fcda) return;
+
     if (extRefAddr) {
       edits.push(
         updatedExtRef(getExtRef(srcRef), {
-          fcda: options.dataSet.querySelectorAll('FCDA')[i],
-          ctrlParent: options.ctrlParent,
+          fcda,
+          ctrlParent: options.parent,
           ctrlBlock: options.ctrlBlock,
         })
       );
@@ -464,7 +479,7 @@ function createExtRefs(
     edits.push(
       ...createExtRef(srcRef, {
         dataSet: options.dataSet,
-        ctrlParent: options.ctrlParent,
+        parent: options.parent,
         ctrlBlock: options.ctrlBlock,
       })
     );
@@ -476,7 +491,7 @@ function createExtRefs(
 function existCtrlBlock(ctrlParent: Element, ctrlBlock: Element): boolean {
   return existingControlBlocks.some(
     source =>
-      source.ctrlParent === ctrlParent &&
+      source.parent === ctrlParent &&
       source.ctrlBlock.getAttribute('name') === ctrlBlock.getAttribute('name')
   );
 }
@@ -488,32 +503,74 @@ function existDataSet(dataSet: Element): boolean {
   );
 }
 
+function getSourceElement(
+  edits: Insert[],
+  commMap: CommMapData
+): {
+  parent: Element;
+  ctrlBlock: Element;
+  dataSet: Element;
+} {
+  const newDataSet = edits[1].node as Element;
+  const newParent = edits[0].parent as Element;
+  const newCtrlBlock = edits[0].node as Element;
+
+  const dataSet = Array.from(
+    newDataSet.ownerDocument.querySelectorAll(
+      `IED[name="${commMap.sourceIED}"] LN0 > DataSet`
+    )
+  ).find(
+    sclDataSet =>
+      !Array.from(newDataSet.querySelectorAll('FCDA')).some(newFcda => {
+        const [prefix, lnClass, lnInst, doName, daName, fc] = [
+          'prefix',
+          'lnClass',
+          'lnInst',
+          'doName',
+          'daName',
+          'fc',
+        ].map(attr => newFcda.getAttribute(attr) ?? '');
+
+        return !sclDataSet.querySelector(
+          `FCDA[prefix="${prefix}"][lnClass="${lnClass}"][lnInst="${lnInst}"][doName="${doName}"][daName="${daName}"][fc="${fc}"]`
+        );
+      })
+  );
+
+  if (dataSet) {
+    const parent = dataSet.parentElement;
+    const ctrlBlock = dataSet.parentElement?.querySelector(
+      `:scope > *[datSet="${dataSet.getAttribute('name')}"]`
+    );
+
+    if (ctrlBlock && parent) {
+      return { parent, ctrlBlock, dataSet };
+    }
+  }
+
+  return { parent: newParent, ctrlBlock: newCtrlBlock, dataSet: newDataSet };
+}
+
 function createCommMap(commMapData: CommMapData[]): Edit[] {
   const edits: Edit[] = [];
 
   commMapData.forEach(commMap => {
-    // is an control block that fits
-    const controlBlockExists = true;
-    if (controlBlockExists) {
-      const ctrlEdits = createControlBlock(commMap);
+    const ctrlEdits = createControlBlock(commMap);
 
-      const dataSet = ctrlEdits[1].node as Element;
-      const ctrlParent = ctrlEdits[0].parent as Element;
-      const ctrlBlock = ctrlEdits[0].node as Element;
+    const { parent, ctrlBlock, dataSet } = getSourceElement(ctrlEdits, commMap);
 
-      if (existCtrlBlock(ctrlParent, ctrlBlock) && existDataSet(dataSet))
-        edits.push(
-          ...createExtRefs(commMap, { dataSet, ctrlParent, ctrlBlock })
-        );
-      else {
-        existingControlBlocks.push({ ctrlParent, ctrlBlock, dataSet });
-        edits.push(
-          ctrlEdits,
-          ...createExtRefs(commMap, { dataSet, ctrlParent, ctrlBlock })
-        );
-      }
-    } else {
-      // create a new control
+    if (
+      (dataSet.parentElement !== null &&
+        dataSet.parentElement === ctrlBlock.parentElement) || // there is a control block that is doing what I want already
+      (existCtrlBlock(parent, ctrlBlock) && existDataSet(dataSet))
+    )
+      edits.push(...createExtRefs(commMap, { dataSet, parent, ctrlBlock }));
+    else {
+      existingControlBlocks.push({ parent, ctrlBlock, dataSet });
+      edits.push(
+        ctrlEdits,
+        ...createExtRefs(commMap, { dataSet, parent, ctrlBlock })
+      );
     }
   });
 
