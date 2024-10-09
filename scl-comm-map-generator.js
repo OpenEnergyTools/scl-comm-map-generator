@@ -1867,6 +1867,7 @@ function newEditEvent(edit) {
 
 const existingControlBlocks = [];
 const inputs = {};
+const createdExtRefs = [];
 function getLnType(element) {
     var _a, _b;
     let lnType = element.getAttribute('lnType');
@@ -2117,7 +2118,7 @@ function updatedExtRef(extRef, options) {
     };
 }
 function getSinkAnyLn(srcRef) {
-    var _a, _b;
+    var _a, _b, _c;
     const [iedName, ldInst, prefix, lnClass, lnInst] = [
         'iedName',
         'ldInst',
@@ -2125,13 +2126,17 @@ function getSinkAnyLn(srcRef) {
         'lnClass',
         'lnInst',
     ].map(attr => srcRef.closest('LNode').getAttribute(attr));
+    const ied = srcRef.ownerDocument.querySelector(`IED[name="${iedName}"]`);
+    const manufacturer = ied === null || ied === void 0 ? void 0 : ied.getAttribute('manufacturer');
+    if (manufacturer === 'ABB')
+        return (_a = ied === null || ied === void 0 ? void 0 : ied.querySelector('LN0')) !== null && _a !== void 0 ? _a : null;
     const lDevice = srcRef.ownerDocument.querySelector(`IED[name="${iedName}"] LDevice[inst="${ldInst}"]`);
-    return ((_b = Array.from((_a = lDevice === null || lDevice === void 0 ? void 0 : lDevice.querySelectorAll(':scope > LN0,:scope > LN')) !== null && _a !== void 0 ? _a : []).find(anyLn => {
+    return ((_c = Array.from((_b = lDevice === null || lDevice === void 0 ? void 0 : lDevice.querySelectorAll(':scope > LN0,:scope > LN')) !== null && _b !== void 0 ? _b : []).find(anyLn => {
         var _a, _b;
         return ((_a = anyLn.getAttribute('prefix')) !== null && _a !== void 0 ? _a : '') === (prefix !== null && prefix !== void 0 ? prefix : '') &&
             anyLn.getAttribute('lnClass') === (lnClass !== null && lnClass !== void 0 ? lnClass : '') &&
             ((_b = anyLn.getAttribute('inst')) !== null && _b !== void 0 ? _b : '') === (lnInst !== null && lnInst !== void 0 ? lnInst : '');
-    })) !== null && _b !== void 0 ? _b : null);
+    })) !== null && _c !== void 0 ? _c : null);
 }
 function createExtRef(srcRef, options) {
     const parent = getSinkAnyLn(srcRef);
@@ -2152,7 +2157,7 @@ function createExtRef(srcRef, options) {
     const srcLNClass = 'LLN0';
     const srcLNInst = null;
     const srcCBName = options.ctrlBlock.getAttribute('name');
-    const extRef = createElement(parent.ownerDocument, 'ExtRef', {
+    const extRefAttr = {
         iedName,
         ldInst,
         prefix,
@@ -2165,9 +2170,15 @@ function createExtRef(srcRef, options) {
         srcLNClass,
         srcLNInst,
         srcCBName,
-    });
+    };
+    const parentId = { parent: identity(parent) };
+    const newExtRef = { ...parentId, ...extRefAttr };
+    if (createdExtRefs.some(ref => JSON.stringify(ref) === JSON.stringify(newExtRef)))
+        return [];
+    const extRef = createElement(parent.ownerDocument, 'ExtRef', extRefAttr);
     const inputsElement = parent.querySelector(':scope > Inputs');
-    if (inputsElement)
+    if (inputsElement) {
+        createdExtRefs.push(newExtRef);
         return [
             {
                 parent: inputsElement,
@@ -2175,8 +2186,10 @@ function createExtRef(srcRef, options) {
                 reference: getReference(parent, 'ExtRef'),
             },
         ];
+    }
     const existInputs = inputs[identity(parent)];
-    if (existInputs)
+    if (existInputs) {
+        createdExtRefs.push(newExtRef);
         return [
             {
                 parent: existInputs,
@@ -2184,8 +2197,10 @@ function createExtRef(srcRef, options) {
                 reference: getReference(parent, 'ExtRef'),
             },
         ];
+    }
     const newInputs = createElement(parent.ownerDocument, 'Inputs', {});
     inputs[identity(parent)] = newInputs;
+    createdExtRefs.push(newExtRef);
     return [
         {
             parent,
@@ -2320,6 +2335,7 @@ class SclCommMapGenerator extends s {
     }
     async run() {
         clear(inputs);
+        createdExtRefs.length = 0;
         const commMapData = transform(this.doc);
         this.createCommMap(commMapData);
     }
