@@ -917,6 +917,67 @@ Array(maxLnInst)
     .fill(1)
     .map((_, i) => `${i + 1}`);
 
+/** @returns Unique element name with  [[`tagName`]] within [[`parent`]] */
+function uniqueElementName(parent, tagName) {
+    const nameCore = `new${tagName}`;
+    const siblingNames = Array.from(parent.querySelectorAll(`:scope > ${tagName}`)).map((child) => child.getAttribute("name") ?? child.tagName);
+    if (!siblingNames.length)
+        return `${nameCore}_001`;
+    let newName = "";
+    let i = 1;
+    newName = `${nameCore}_${i.toString().padStart(3, "0")}`;
+    while (i < siblingNames.length + 1) {
+        if (!siblingNames.includes(newName))
+            break;
+        i += 1;
+        newName = `${nameCore}_${i.toString().padStart(3, "0")}`;
+    }
+    return newName;
+}
+
+/** @returns ConnectedAP element for LN0 within AccessPoint */
+function connectedAp(ln0, apName) {
+    const accessPointName = apName ?? ln0.closest("AccessPoint")?.getAttribute("name");
+    const iedName = ln0.closest("IED")?.getAttribute("name");
+    return ln0.ownerDocument.querySelector(`:root > Communication > SubNetwork > ConnectedAP[iedName="${iedName}"][apName="${accessPointName}"]`);
+}
+
+function pathId(ln0, cbName) {
+    const iedName = ln0.closest("IED")?.getAttribute("name");
+    const ldInst = ln0.closest("LDevice")?.getAttribute("inst");
+    const prefix = ln0.getAttribute("prefix") ?? "";
+    const lnClass = ln0.getAttribute("lnClass");
+    const inst = ln0.getAttribute("inst");
+    return `${iedName}/${ldInst}/${prefix}${lnClass}${inst}/${cbName}`;
+}
+
+function maxGSEControl(parent) {
+    {
+        const selector = `:scope > Services > GOOSE`;
+        const apGOOSE = parent.closest("AccessPoint")?.querySelector(selector);
+        if (apGOOSE)
+            return {
+                max: parseInt(apGOOSE.getAttribute("max") ?? "0", 10),
+                scope: "AccessPoint",
+            };
+        const iedGOOSE = parent.closest("IED")?.querySelector(selector);
+        return {
+            max: parseInt(iedGOOSE?.getAttribute("max") ?? "0", 10),
+            scope: "IED",
+        };
+    }
+}
+/** Checks Services>GOOSE AccessPoint or on IED if the first is not present
+ * @param parent - parent `LN0`
+ * @returns Whether new `GSEControl` is exceeding GOOSE.max attribute */
+function canAddGSEControl(ln0) {
+    const { max, scope } = maxGSEControl(ln0);
+    const existingGseControls = Array.from(ln0
+        .closest(scope)
+        ?.querySelectorAll(":scope Server > LDevice > LN0 > GSEControl") ?? []).length;
+    return max > existingGseControls;
+}
+
 const maxGseMacAddress = 0x010ccd0101ff;
 const minGseMacAddress = 0x010ccd010000;
 const maxSmvMacAddress = 0x010ccd0401ff;
@@ -926,12 +987,35 @@ function convertToMac(mac) {
     const arr = str.match(/.{1,2}/g);
     return arr.join("-");
 }
-Array(maxGseMacAddress - minGseMacAddress)
+const gseMacRange = Array(maxGseMacAddress - minGseMacAddress)
     .fill(1)
     .map((_, i) => convertToMac(minGseMacAddress + i));
-Array(maxSmvMacAddress - minSmvMacAddress)
+const smvMacRange = Array(maxSmvMacAddress - minSmvMacAddress)
     .fill(1)
     .map((_, i) => convertToMac(minSmvMacAddress + i));
+/** Generator function returning `MAC-Address` within `doc`. Defined once it can
+ * generate unique `MAC-address` without the need to update the `doc` in-between:
+ * @example
+ * ```ts
+ * const macGenerator = macAddressGenerator(doc,"GSE");
+ * const mac1 = macGenerator();        //01-0C-CD-01-00-09
+ * const mac2 = macGenerator();        //01-0C-CD-01-00-0A
+ * ```
+ * @param doc - Project SCL as XMLDocument
+ * @param serviceType - SampledValueControl (SMV) or GSEControl (GSE)
+ * @returns A function generating increasing unused `MAC-Address` within `doc`
+ *          on subsequent invocations
+ */
+function macAddressGenerator(doc, serviceType) {
+    const macs = new Set(Array.from(doc.querySelectorAll(`${serviceType} > Address > P[type="MAC-Address"]`)).map((mac) => mac.textContent));
+    const range = serviceType === "SMV" ? smvMacRange : gseMacRange;
+    return () => {
+        const uniqueMAC = range.find((mac) => !macs.has(mac));
+        if (uniqueMAC)
+            macs.add(uniqueMAC);
+        return uniqueMAC ?? null;
+    };
+}
 
 const maxGseAppId = 0x3fff;
 const minGseAppId = 0x0000;
@@ -940,15 +1024,271 @@ const maxGseTripAppId = 0xbfff;
 const minGseTripAppId = 0x8000;
 const maxSmvAppId = 0x7fff;
 const minSmvAppId = 0x4000;
-Array(maxGseAppId - minGseAppId)
+const gseAppIdRange = Array(maxGseAppId - minGseAppId)
     .fill(1)
     .map((_, i) => (minGseAppId + i).toString(16).toUpperCase().padStart(4, "0"));
-Array(maxGseTripAppId - minGseTripAppId)
+const gseTripAppIdRange = Array(maxGseTripAppId - minGseTripAppId)
     .fill(1)
     .map((_, i) => (minGseTripAppId + i).toString(16).toUpperCase().padStart(4, "0"));
-Array(maxSmvAppId - minSmvAppId)
+const smvAppIdRange = Array(maxSmvAppId - minSmvAppId)
     .fill(1)
     .map((_, i) => (minSmvAppId + i).toString(16).toUpperCase().padStart(4, "0"));
+/** Generator function returning unique `APPID` within `doc`. Defined once it
+ * can generate unique `APPID`s without the need to update the `doc` in-between
+ * ```md
+ * GSE:         0x0000 - 0x3FFF
+ * GSE Type1A:  0x8000 - 0xBFFF
+ * SMV:         0x4000 - 0x7FFF
+ * ```
+ * @example
+ * ```ts
+ * const appIdGen = appIdGenerator(doc,"GSE");
+ * const appId1 = appIdGen();        //0001
+ * const appId2 = appIdGen();        //000A
+ * ```
+ * @param doc - Project SCL as XMLDocument
+ * @param serviceType - SampledValueControl (SMV) or GSEControl (GSE)
+ * @param type1A - Whether the GOOSE is a Trip GOOSE resulting
+ *                 in different APPID range - default false
+ * @returns A function generating increasing unused `APPID` within `doc`
+ *          on subsequent invocations
+ */
+function appIdGenerator(doc, serviceType, type1A = false) {
+    const appIds = new Set(Array.from(doc.querySelectorAll(`${serviceType} > Address > P[type="APPID"]`)).map((appId) => appId.textContent));
+    const range = 
+    // eslint-disable-next-line no-nested-ternary
+    serviceType === "SMV"
+        ? smvAppIdRange
+        : type1A
+            ? gseTripAppIdRange
+            : gseAppIdRange;
+    return () => {
+        const uniqueAppId = range.find((appId) => !appIds.has(appId));
+        if (uniqueAppId)
+            appIds.add(uniqueAppId);
+        return uniqueAppId ?? null;
+    };
+}
+
+/** @returns Edit inserting new `GSE` to [[`parent`]] ConnectedAP element */
+function createGSE(parent, attributes, options = {}) {
+    if (parent.tagName !== "ConnectedAP")
+        return null;
+    const doc = parent.ownerDocument;
+    const gSE = createElement(doc, "GSE", attributes);
+    const address = createElement(doc, "Address", {});
+    gSE.appendChild(address);
+    const pTypes = {};
+    pTypes["MAC-Address"] = options.mac ?? macAddressGenerator(doc, "GSE")();
+    pTypes.APPID = options.appId ?? appIdGenerator(doc, "GSE")();
+    pTypes["VLAN-ID"] = options.vlanId ?? "000";
+    pTypes["VLAN-PRIORITY"] = options.vlanPriority ?? "4";
+    Object.entries(pTypes)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        .filter(([_, value]) => value !== undefined)
+        .forEach(([type, value]) => {
+        const child = createElement(doc, "P", { type });
+        child.textContent = value;
+        address.appendChild(child);
+    });
+    const newMinTime = createElement(doc, "MinTime", {
+        unit: "s",
+        multiplier: "m",
+    });
+    newMinTime.textContent = options.MinTime ?? "10";
+    gSE.appendChild(newMinTime);
+    const newMaxTime = createElement(doc, "MaxTime", {
+        unit: "s",
+        multiplier: "m",
+    });
+    newMaxTime.textContent = options.MaxTime ?? "10000";
+    gSE.appendChild(newMaxTime);
+    return {
+        parent,
+        node: gSE,
+        reference: getReference(parent, "GSE"),
+    };
+}
+
+function invalidGSEControl(ln0, name, datSet) {
+    const uniqueName = name
+        ? !ln0.querySelector(`:scope > GSEControl[name="${name}"]`)
+        : true;
+    const validDataSet = datSet
+        ? !!ln0.querySelector(`:scope > DataSet[name="${datSet}"]`)
+        : true;
+    return !(uniqueName && validDataSet && canAddGSEControl(ln0));
+}
+/** Utility function to create schema valid `GSEControl` and `GSE` elements
+ * @parent Parent element such as `LN0`, `LDevice`, `AccessPoint` and `IED`
+ * @options Configuration for GSEControl/GSE element
+ * @returns Edit inserting new `GSEControl` to [[`parent`]] element and when possible
+ *          `GSE` to connected `ConnectedAP`
+ * */
+function createGSEControl(parent, options = { gseControl: {}, gse: {} }) {
+    const ln0 = parent.tagName === "LN0" ? parent : parent.querySelector("LN0");
+    if (!ln0)
+        return [];
+    const name = options.gseControl?.name;
+    const datSet = options.gseControl?.datSet;
+    if (!options.skipCheck && invalidGSEControl(ln0, name, datSet))
+        return [];
+    const attributes = { ...options.gseControl };
+    const cbName = name ? name : uniqueElementName(ln0, "GSEControl");
+    if (!options.gseControl?.name)
+        attributes.name = cbName;
+    if (!options.gseControl?.confRev)
+        attributes.confRev = "1";
+    if (!options.gseControl?.type)
+        attributes.type = "GOOSE";
+    if (!options.gseControl?.appID)
+        attributes.appID = pathId(ln0, cbName);
+    const generatedConfRev = options.gseControl?.datSet ? "1" : "0";
+    const userConfRev = options.gseControl?.confRev;
+    attributes.confRev = userConfRev ? userConfRev : generatedConfRev;
+    const gseControl = createElement(ln0.ownerDocument, "GSEControl", attributes);
+    const edits = [];
+    edits.push({
+        parent: ln0,
+        node: gseControl,
+        reference: getReference(ln0, "GSEControl"),
+    });
+    const connAp = connectedAp(ln0, options.gse?.apName);
+    if (!connAp)
+        return edits;
+    const ldInst = ln0.closest("LDevice").getAttribute("inst");
+    if (!ldInst || !cbName)
+        return edits;
+    const gseCreateOptions = options.gse ?? {};
+    delete gseCreateOptions.apName;
+    const gseAttrs = { ldInst, cbName };
+    const gseEdit = createGSE(connAp, gseAttrs, gseCreateOptions);
+    if (gseEdit)
+        edits.push(gseEdit);
+    return edits;
+}
+
+/** @returns Edit inserting new `SMV` to [[`parent`]] ConnectedAP element */
+function createSMV(parent, attributes, options = {}) {
+    if (parent.tagName !== "ConnectedAP")
+        return null;
+    const doc = parent.ownerDocument;
+    const gSE = createElement(doc, "SMV", attributes);
+    const address = createElement(doc, "Address", {});
+    gSE.appendChild(address);
+    const pTypes = {};
+    pTypes["MAC-Address"] = options.mac ?? macAddressGenerator(doc, "SMV")();
+    pTypes.APPID = options.appId ?? appIdGenerator(doc, "SMV")();
+    pTypes["VLAN-ID"] = options.vlanId ?? "000";
+    pTypes["VLAN-PRIORITY"] = options.vlanPriority ?? "4";
+    Object.entries(pTypes)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        .filter(([_, value]) => value !== undefined)
+        .forEach(([type, value]) => {
+        const child = createElement(doc, "P", { type });
+        child.textContent = value;
+        address.appendChild(child);
+    });
+    return {
+        parent,
+        node: gSE,
+        reference: getReference(parent, "SMV"),
+    };
+}
+
+function maxSampledValueControl(parent) {
+    {
+        const selector = `:scope > Services > SMVsc`;
+        const apSMV = parent.closest("AccessPoint")?.querySelector(selector);
+        if (apSMV)
+            return {
+                max: parseInt(apSMV.getAttribute("max") ?? "0", 10),
+                scope: "AccessPoint",
+            };
+        const iedSMV = parent.closest("IED")?.querySelector(selector);
+        return {
+            max: parseInt(iedSMV?.getAttribute("max") ?? "0", 10),
+            scope: "IED",
+        };
+    }
+}
+/** Checks Services>SMVsc AccessPoint or on IED if the first is not present
+ * @param parent - parent `LN0`
+ * @returns Whether new `SampledValueControl` is exceeding SMVsc.max attribute */
+function canAddSampledValueControl(ln0) {
+    const { max, scope } = maxSampledValueControl(ln0);
+    const existingSampledValueControls = Array.from(ln0
+        .closest(scope)
+        ?.querySelectorAll(":scope Server > LDevice > LN0 > SampledValueControl") ?? []).length;
+    return max > existingSampledValueControls;
+}
+
+function invalidSampledValueControl(ln0, name, datSet) {
+    const uniqueName = name
+        ? !ln0.querySelector(`:scope > SampledValueControl[name="${name}"]`)
+        : true;
+    const validDataSet = datSet
+        ? !!ln0.querySelector(`:scope > DataSet[name="${datSet}"]`)
+        : true;
+    return !(uniqueName && validDataSet && canAddSampledValueControl(ln0));
+}
+/** Utility function to create schema valid `SampledValueControl` and `SMV` elements
+ * @parent Parent element such as `LN0`, `LDevice`, `AccessPoint` and `IED`
+ * @options Configuration for SampledValueControl/SMV element
+ * @returns Edit inserting new `SampledValueControl` to [[`parent`]] element and when possible
+ *          `SMV` to connected `ConnectedAP`
+ * */
+function createSampledValueControl(parent, options = {
+    smvControl: {},
+    smv: {},
+}) {
+    const ln0 = parent.tagName === "LN0" ? parent : parent.querySelector("LN0");
+    if (!ln0)
+        return [];
+    const name = options.smvControl?.name;
+    const datSet = options.smvControl?.datSet;
+    if (!options.skipCheck && invalidSampledValueControl(ln0, name, datSet))
+        return [];
+    const attributes = { ...options.smvControl };
+    const cbName = name ? name : uniqueElementName(ln0, "SampledValueControl");
+    if (!options.smvControl?.name)
+        attributes.name = cbName;
+    if (!options.smvControl?.multicast)
+        attributes.multicast = "true";
+    if (!options.smvControl?.smpRate)
+        attributes.smpRate = "80";
+    if (!options.smvControl?.nofASDU)
+        attributes.nofASDU = "1";
+    if (!options.smvControl?.smpMod)
+        attributes.smpMod = "SmpPerPeriod";
+    if (!options.smvControl?.smvID)
+        attributes.smvID = pathId(ln0, cbName);
+    const generatedConfRev = options.smvControl?.datSet ? "1" : "0";
+    const userConfRev = options.smvControl?.confRev;
+    attributes.confRev = userConfRev ? userConfRev : generatedConfRev;
+    const smvControl = createElement(ln0.ownerDocument, "SampledValueControl", attributes);
+    const smvOpts = createElement(ln0.ownerDocument, "SmvOpts", options.smvOpts ?? {});
+    smvControl.appendChild(smvOpts);
+    const edits = [];
+    edits.push({
+        parent: ln0,
+        node: smvControl,
+        reference: getReference(ln0, "SampledValueControl"),
+    });
+    const connAp = connectedAp(ln0, options.smv?.apName);
+    if (!connAp)
+        return edits;
+    const ldInst = ln0.closest("LDevice").getAttribute("inst");
+    if (!ldInst || !cbName)
+        return edits;
+    const smvCreateOptions = options.smv ?? {};
+    delete smvCreateOptions.apName;
+    const smvAttrs = { ldInst, cbName };
+    const smvEdit = createSMV(connAp, smvAttrs, smvCreateOptions);
+    if (smvEdit)
+        edits.push(smvEdit);
+    return edits;
+}
 
 await fetch(new URL(new URL('assets/nsd-0a370a57.json', import.meta.url).href, import.meta.url)).then((res) => res.json());
 
@@ -1614,11 +1954,6 @@ function transform(doc) {
     });
     return data;
 }
-const controls = {
-    Report: 'ReportControl',
-    GOOSE: 'GSEControl',
-    SMV: 'SampledValueControl',
-};
 function getChild(name, parent) {
     var _a, _b, _c;
     if (!parent)
@@ -1684,30 +2019,37 @@ function createFCDA(mapping) {
     });
     return fcda;
 }
+function isNew(dataSet, newFcda) {
+    return !Array.from(dataSet.querySelectorAll('FCDA')).some(fcda => {
+        var _a, _b, _c, _d, _e, _f, _g;
+        const [ldInst, prefix, lnClass, lnInst, doName, daName, fc] = [
+            'ldInst',
+            'prefix',
+            'lnClass',
+            'lnInst',
+            'doName',
+            'daName',
+            'fc',
+        ].map(attr => { var _a; return (_a = newFcda.getAttribute(attr)) !== null && _a !== void 0 ? _a : ''; });
+        return ((_g = (ldInst === ((_a = fcda.getAttribute('ldInst')) !== null && _a !== void 0 ? _a : '') &&
+            prefix === ((_b = fcda.getAttribute('prefix')) !== null && _b !== void 0 ? _b : '') &&
+            lnClass === ((_c = fcda.getAttribute('lnClass')) !== null && _c !== void 0 ? _c : '') &&
+            lnInst === ((_d = fcda.getAttribute('lnInst')) !== null && _d !== void 0 ? _d : '') &&
+            doName === ((_e = fcda.getAttribute('doName')) !== null && _e !== void 0 ? _e : '') &&
+            daName === ((_f = fcda.getAttribute('daName')) !== null && _f !== void 0 ? _f : '') &&
+            fc === fcda.getAttribute('fc'))) !== null && _g !== void 0 ? _g : '');
+    });
+}
 function createDataSet(commMapData) {
     const dataSet = createElement(commMapData.source.ownerDocument, 'DataSet', {
         name: `${commMapData.source.getAttribute('name')}_DS`,
     });
     commMapData.mappings.forEach(mapping => {
         const fcda = createFCDA(mapping);
-        if (fcda)
+        if (fcda && isNew(dataSet, fcda))
             dataSet.appendChild(fcda);
     });
     return dataSet;
-}
-function createAppId(name, ln0) {
-    let parent = ln0.parentElement;
-    let path = '';
-    while (parent && parent.tagName !== 'SCL') {
-        if (parent.tagName === 'LDevice') {
-            path = `${parent.getAttribute('inst')}/${path}`;
-        }
-        else if (parent.tagName === 'IED') {
-            path = `${parent.getAttribute('name')}/${path}`;
-        }
-        parent = parent.parentElement;
-    }
-    return `${path}/${name}`;
 }
 function createControlBlock(commMapData) {
     const ln0 = commMapData.source.ownerDocument.querySelector(`IED[name="${commMapData.sourceIED}"] LN0`);
@@ -1716,22 +2058,29 @@ function createControlBlock(commMapData) {
     const service = commMapData.mappings[0].srcRef.getAttribute('service');
     const dataSet = createDataSet(commMapData);
     const datSet = dataSet.getAttribute('name');
-    const controlBlock = createElement(commMapData.source.ownerDocument, controls[service], {
-        datSet,
-        name: commMapData.sourceName,
-        appID: createAppId(datSet, ln0),
-    });
+    const edits = [];
+    if (service === 'GOOSE') {
+        edits.push(...createGSEControl(ln0, {
+            gseControl: {
+                name: commMapData.sourceName,
+                datSet,
+            },
+            skipCheck: true,
+        }));
+    }
+    else if (service === 'SMV') {
+        edits.push(...createSampledValueControl(ln0, {
+            smvControl: { name: commMapData.sourceName, datSet },
+            skipCheck: true,
+        }));
+    }
     return [
-        {
-            parent: ln0,
-            node: controlBlock,
-            reference: getReference(ln0, controlBlock.tagName),
-        },
         {
             parent: ln0,
             node: dataSet,
             reference: getReference(ln0, 'DataSet'),
         },
+        ...edits,
     ];
 }
 function updatedExtRef(extRef, options) {
@@ -1917,9 +2266,9 @@ function existDataSet(dataSet) {
 }
 function getSourceElement(edits, commMap) {
     var _a;
-    const newDataSet = edits[1].node;
-    const newParent = edits[0].parent;
-    const newCtrlBlock = edits[0].node;
+    const newDataSet = edits[0].node;
+    const newParent = edits[1].parent;
+    const newCtrlBlock = edits[1].node;
     const dataSet = Array.from(newDataSet.ownerDocument.querySelectorAll(`IED[name="${commMap.sourceIED}"] LN0 > DataSet`)).find(sclDataSet => !Array.from(newDataSet.querySelectorAll('FCDA')).some(newFcda => {
         const [prefix, lnClass, lnInst, doName, daName, fc] = [
             'prefix',
@@ -1940,22 +2289,6 @@ function getSourceElement(edits, commMap) {
     }
     return { parent: newParent, ctrlBlock: newCtrlBlock, dataSet: newDataSet };
 }
-function createCommMap(commMapData) {
-    const edits = [];
-    commMapData.forEach(commMap => {
-        const ctrlEdits = createControlBlock(commMap);
-        const { parent, ctrlBlock, dataSet } = getSourceElement(ctrlEdits, commMap);
-        if ((dataSet.parentElement !== null &&
-            dataSet.parentElement === ctrlBlock.parentElement) || // there is a control block that is doing what I want already
-            (existCtrlBlock(parent, ctrlBlock) && existDataSet(dataSet)))
-            edits.push(...createExtRefs(commMap, { dataSet, parent, ctrlBlock }));
-        else {
-            existingControlBlocks.push({ parent, ctrlBlock, dataSet });
-            edits.push(ctrlEdits, ...createExtRefs(commMap, { dataSet, parent, ctrlBlock }));
-        }
-    });
-    return edits;
-}
 function clear(inp) {
     Object.keys(inp).forEach(key => {
         // eslint-disable-next-line no-param-reassign
@@ -1969,10 +2302,26 @@ class SclCommMapGenerator extends s {
         /** SCL change indicator */
         this.editCount = -1;
     }
+    createCommMap(commMapData) {
+        commMapData.forEach(commMap => {
+            const edits = [];
+            const ctrlEdits = createControlBlock(commMap);
+            const { parent, ctrlBlock, dataSet } = getSourceElement(ctrlEdits, commMap);
+            if ((dataSet.parentElement !== null &&
+                dataSet.parentElement === ctrlBlock.parentElement) || // there is a control block that is doing what I want already
+                (existCtrlBlock(parent, ctrlBlock) && existDataSet(dataSet)))
+                edits.push(...createExtRefs(commMap, { dataSet, parent, ctrlBlock }));
+            else {
+                existingControlBlocks.push({ parent, ctrlBlock, dataSet });
+                edits.push(ctrlEdits, ...createExtRefs(commMap, { dataSet, parent, ctrlBlock }));
+            }
+            this.dispatchEvent(newEditEvent(edits));
+        });
+    }
     async run() {
         clear(inputs);
         const commMapData = transform(this.doc);
-        this.dispatchEvent(newEditEvent(createCommMap(commMapData)));
+        this.createCommMap(commMapData);
     }
 }
 SclCommMapGenerator.styles = i$2 `
