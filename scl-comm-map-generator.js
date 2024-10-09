@@ -2246,7 +2246,7 @@ function findFCDA(dataSet, mapping) {
     const { doName, daName, fc } = getDataDetail(mapping.srcLNode, dataPath);
     if (!doName || !daName || !fc)
         return null;
-    const fcda = dataSet.querySelector(`:scope > FCDA[ldInst="${ldInst}"]${prefix ? `[prefix="${prefix}"]` : `:not([prefix])`}[lnClass="${lnClass}"][lnInst="${lnInst}"][doName="${doName}"][daName="${daName}"][fc="${fc}"]`);
+    const fcda = dataSet.querySelector(`:scope > FCDA[ldInst="${ldInst}"]${prefix !== null ? `[prefix="${prefix}"]` : `:not([prefix])`}[lnClass="${lnClass}"][lnInst="${lnInst}"][doName="${doName}"][daName="${daName}"][fc="${fc}"]`);
     return fcda;
 }
 function createExtRefs(commMapData, options) {
