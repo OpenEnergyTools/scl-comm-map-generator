@@ -2208,7 +2208,7 @@ function createExtRef(srcRef, options) {
             reference: getReference(parent, 'Inputs'),
         },
         {
-            parent: existInputs,
+            parent: newInputs,
             node: extRef,
             reference: null,
         },
@@ -2239,13 +2239,14 @@ function findFCDA(dataSet, mapping) {
     const dataPath = (_a = mapping.srcRef.getAttribute('source')) === null || _a === void 0 ? void 0 : _a.split('/').pop();
     if (!dataPath)
         return null;
+    const ldInst = mapping.srcLNode.getAttribute('ldInst');
     const prefix = mapping.srcLNode.getAttribute('prefix');
     const lnClass = mapping.srcLNode.getAttribute('lnClass');
     const lnInst = mapping.srcLNode.getAttribute('lnInst');
     const { doName, daName, fc } = getDataDetail(mapping.srcLNode, dataPath);
     if (!doName || !daName || !fc)
         return null;
-    const fcda = dataSet.querySelector(`:scope > FCDA${prefix ? `[prefix="${prefix}"]` : `:not([prefix])`}[lnClass="${lnClass}"][lnInst="${lnInst}"][doName="${doName}"][daName="${daName}"][fc="${fc}"]`);
+    const fcda = dataSet.querySelector(`:scope > FCDA[ldInst="${ldInst}"]${prefix ? `[prefix="${prefix}"]` : `:not([prefix])`}[lnClass="${lnClass}"][lnInst="${lnInst}"][doName="${doName}"][daName="${daName}"][fc="${fc}"]`);
     return fcda;
 }
 function createExtRefs(commMapData, options) {
