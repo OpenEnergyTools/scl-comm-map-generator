@@ -2052,6 +2052,24 @@ function createDataSet(commMapData) {
     });
     return dataSet;
 }
+function addIedName(ctrlBlock, mappings) {
+    const newIed = [];
+    mappings.forEach(mapping => {
+        var _a, _b;
+        const iedName = (_a = mapping.srcRef.closest('LNode')) === null || _a === void 0 ? void 0 : _a.getAttribute('iedName');
+        const ied = ctrlBlock.ownerDocument.querySelector(`:root > IED[name="${iedName}"]`);
+        const ldInst = (_b = ied === null || ied === void 0 ? void 0 : ied.querySelector('LDevice')) === null || _b === void 0 ? void 0 : _b.getAttribute('inst');
+        if (iedName && ied && ldInst && !newIed.includes(iedName)) {
+            const iedNameElement = createElement(ctrlBlock.ownerDocument, 'IEDName', {
+                ldInst,
+                lnClass: 'LLN0',
+            });
+            iedNameElement.textContent = iedName;
+            ctrlBlock.insertBefore(iedNameElement, null);
+            newIed.push(iedName);
+        }
+    });
+}
 function createControlBlock(commMapData) {
     const ln0 = commMapData.source.ownerDocument.querySelector(`IED[name="${commMapData.sourceIED}"] LN0`);
     if (!ln0)
@@ -2075,6 +2093,7 @@ function createControlBlock(commMapData) {
             skipCheck: true,
         }));
     }
+    addIedName(edits[0].node, commMapData.mappings);
     return [
         {
             parent: ln0,
@@ -2157,6 +2176,7 @@ function createExtRef(srcRef, options) {
     const srcLNClass = 'LLN0';
     const srcLNInst = null;
     const srcCBName = options.ctrlBlock.getAttribute('name');
+    const serviceType = srcRef.getAttribute('service');
     const extRefAttr = {
         iedName,
         ldInst,
@@ -2165,6 +2185,7 @@ function createExtRef(srcRef, options) {
         lnInst,
         doName,
         daName,
+        serviceType,
         srcLDInst,
         srcPrefix,
         srcLNClass,
