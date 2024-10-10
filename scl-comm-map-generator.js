@@ -2065,7 +2065,7 @@ function addIedName(ctrlBlock, mappings) {
                 lnClass: 'LLN0',
             });
             iedNameElement.textContent = iedName;
-            ctrlBlock.insertBefore(iedNameElement, null);
+            ctrlBlock.insertBefore(iedNameElement, ctrlBlock.firstElementChild);
             newIed.push(iedName);
         }
     });
